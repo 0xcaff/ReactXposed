@@ -1,39 +1,42 @@
 package xyz.xcaff.reactxposed.hooks
 
-import android.app.Application
-import android.util.Log
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedHelpers
+import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 class HooksApplicator : IXposedHookLoadPackage {
     override fun handleLoadPackage(loadPackageParam: XC_LoadPackage.LoadPackageParam) {
-        println("handleLoadPackage!!!")
-        GlobalScope.launch {
-            println("getting application!!!")
-            val application = getApplication()
-            Log.e("test!!", application.packageName)
-        }
+        val method = loadPackageParam.classLoader.loadClass("com.facebook.react.bridge.JavaModuleWrapper").methods.find { it.name == "invoke" }!!
+        XposedBridge.hookMethod(method, object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                val moduleWrapperInstance = param.thisObject
+                val name = (moduleWrapperInstance.javaClass.methods.find { it.name == "getName" }!!).invoke(moduleWrapperInstance) as String
+                if (listOf("UIManager", "NativeAnimatedModule", "ReanimatedModule").contains(name)) {
+                    return
+                }
+
+                val methods = (moduleWrapperInstance.javaClass.methods.find { it.name == "getMethodDescriptors" }!!).invoke(moduleWrapperInstance) as List<*>
+                val methodIdx = param.args[0] as Int
+                val method = methods[methodIdx]!!
+
+                val nameField = method.javaClass.getDeclaredField("name")
+                nameField.isAccessible = true
+                val methodName = nameField.get(method) as String
+
+                val signatureField = method.javaClass.getDeclaredField("signature")
+                signatureField.isAccessible = true
+                val signature = signatureField.get(method) as String?
+
+                val typeField = method.javaClass.getDeclaredField("type")
+                typeField.isAccessible = true
+                val type = typeField.get(method) as String?
+
+                val params = param.args[1]
+                val paramsList = params.javaClass.getMethod("toArrayList").invoke(params) as ArrayList<*>
+
+                println("crossing bridge $name.$methodName $signature $type $paramsList")
+            }
+        })
     }
 }
-
-suspend fun getApplication(): Application =
-    suspendCancellableCoroutine {
-        XposedHelpers.findAndHookMethod(
-            Application::class.java,
-            "onCreate",
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    super.beforeHookedMethod(param)
-
-                    val application = param.thisObject as Application
-                    it.resume(application)
-                }
-            }
-        )
-    }
