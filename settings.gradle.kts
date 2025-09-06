@@ -17,6 +17,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         jcenter()
+        maven("https://api.xposed.info/")
     }
 }
 
